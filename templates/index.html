@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GST Reconciliation Tool</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #f4f6f8;
+            padding: 30px;
+        }
+
+        .container {
+            width: 600px;
+            margin: auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px #ccc;
+        }
+
+        h1 {
+            text-align: center;
+            color: #1F4E78;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0px;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #1F4E78;
+            color: white;
+            border: none;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #163a5c;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <h1>GST Reconciliation Tool</h1>
+
+    <form action="/run" method="post" enctype="multipart/form-data">
+
+        <label>Upload Purchase Register</label>
+        <input type="file" name="purchase_file" accept=".xlsx" required>
+
+        <label>Upload GSTR-2B</label>
+        <input type="file" name="gstr_file" accept=".xlsx" required>
+
+        <label>Select Month</label>
+        <select name="tax_month" required>
+            <option value="April">April</option>
+            <option value="May">May</option>
+            <option value="June">June</option>
+            <option value="July">July</option>
+            <option value="August">August</option>
+            <option value="September">September</option>
+            <option value="October">October</option>
+            <option value="November">November</option>
+            <option value="December">December</option>
+            <option value="January">January</option>
+            <option value="February">February</option>
+            <option value="March">March</option>
+        </select>
+
+        <button type="submit">Run Reconciliation</button>
+
+    </form>
+
+</div>
+
+</body>
+</html>
