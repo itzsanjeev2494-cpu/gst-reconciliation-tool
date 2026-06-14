@@ -24,16 +24,17 @@ BOOKS_FILE = sys.argv[1]
 GSTR2A_FILE = sys.argv[2]
 TAX_MONTH = sys.argv[3]
 
-TOLERANCE = 1.0
-
-folder_name = TAX_MONTH + "_Recon"
+# Create month-wise folder
+folder_name = f"{TAX_MONTH}_Recon"
 
 if not os.path.exists(folder_name):
     os.makedirs(folder_name)
 
+# Save report inside month folder
 OUTPUT_FILE = os.path.join(
     folder_name,
     f"GST_Reconciliation_Report_{TAX_MONTH}.xlsx"
+
 )
 
 
