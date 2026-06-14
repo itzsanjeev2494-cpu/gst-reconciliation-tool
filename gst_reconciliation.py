@@ -1,86 +1,122 @@
 import pandas as pd
-import sys
 import os
+import sys
 
-# Read command-line arguments
-purchase_file = sys.argv[1]
-gstr_file = sys.argv[2]
-TAX_MONTH = sys.argv[3]
+# ==============================
+# SETTINGS
+# ==============================
+TOLERANCE = 1   # ₹1 difference allowed
 
-# Load Excel files
-purchase_df = pd.read_excel(purchase_file)
-gstr_df = pd.read_excel(gstr_file)
 
-# Standardize column names
-purchase_df.columns = purchase_df.columns.str.strip()
-gstr_df.columns = gstr_df.columns.str.strip()
+# ==============================
+# LOAD FILES
+# ==============================
+def load_files(purchase_file, gstr_file):
+    books = pd.read_excel(purchase_file)
+    gstr2a = pd.read_excel(gstr_file)
 
-# Merge on Invoice No
-merged_df = pd.merge(
-    purchase_df,
-    gstr_df,
-    on="Invoice No",
-    how="outer",
-    suffixes=("_Purchase", "_GSTR2B"),
-    indicator=True
-)
+    # Standardize column names
+    books.columns = books.columns.str.strip()
+    gstr2a.columns = gstr2a.columns.str.strip()
 
-# Match status logic
-def get_status(row):
-    if row["_merge"] == "both":
-        purchase_taxable = row.get("Taxable Amount_Purchase", 0)
-        gstr_taxable = row.get("Taxable Amount_GSTR2B", 0)
+    return books, gstr2a
 
-        purchase_gst = row.get("GST Amount_Purchase", 0)
-        gstr_gst = row.get("GST Amount_GSTR2B", 0)
 
-        if purchase_taxable == gstr_taxable and purchase_gst == gstr_gst:
+# ==============================
+# RECONCILIATION LOGIC
+# ==============================
+def reconcile(books, gstr2a):
+
+    merged = pd.merge(
+        books,
+        gstr2a,
+        on="Invoice No",
+        how="outer",
+        suffixes=("_Books", "_GSTR")
+    )
+
+    # Fill missing values
+    merged["Taxable Amount_Books"] = merged["Taxable Amount_Books"].fillna(0)
+    merged["Taxable Amount_GSTR"] = merged["Taxable Amount_GSTR"].fillna(0)
+    merged["GST Amount_Books"] = merged["GST Amount_Books"].fillna(0)
+    merged["GST Amount_GSTR"] = merged["GST Amount_GSTR"].fillna(0)
+
+    # Calculate differences
+    merged["Taxable Difference"] = (
+        merged["Taxable Amount_Books"] - merged["Taxable Amount_GSTR"]
+    )
+
+    merged["GST Difference"] = (
+        merged["GST Amount_Books"] - merged["GST Amount_GSTR"]
+    )
+
+    # Status classification
+    def classify(row):
+
+        tax_diff = abs(row["Taxable Difference"])
+        gst_diff = abs(row["GST Difference"])
+
+        if row["Taxable Amount_Books"] == 0:
+            return "Only in GSTR"
+
+        elif row["Taxable Amount_GSTR"] == 0:
+            return "Only in Books"
+
+        elif tax_diff <= TOLERANCE and gst_diff <= TOLERANCE:
             return "Matched"
+
         else:
             return "Mismatch"
 
-    elif row["_merge"] == "left_only":
-        return "Missing in GSTR-2B"
+    merged["Status"] = merged.apply(classify, axis=1)
 
-    elif row["_merge"] == "right_only":
-        return "Missing in Purchase Register"
+    return merged
 
-# Apply reconciliation status
-merged_df["Status"] = merged_df.apply(get_status, axis=1)
 
-# Summary sheet
-summary = pd.DataFrame({
-    "Particulars": [
-        "Total Purchase Invoices",
-        "Total GSTR-2B Invoices",
-        "Matched",
-        "Mismatch",
-        "Missing in GSTR-2B",
-        "Missing in Purchase Register"
-    ],
-    "Count": [
-        len(purchase_df),
-        len(gstr_df),
-        len(merged_df[merged_df["Status"] == "Matched"]),
-        len(merged_df[merged_df["Status"] == "Mismatch"]),
-        len(merged_df[merged_df["Status"] == "Missing in GSTR-2B"]),
-        len(merged_df[merged_df["Status"] == "Missing in Purchase Register"])
-    ]
-})
+# ==============================
+# SAVE REPORT
+# ==============================
+def save_report(result, tax_month):
 
-# Create month-wise folder
-folder_name = f"{TAX_MONTH}_Recon"
-os.makedirs(folder_name, exist_ok=True)
+    folder_name = f"{tax_month}_Recon"
 
-# Final output file path
-OUTPUT_FILE = os.path.join(
-    folder_name,
-    f"GST_Reconciliation_Report_{TAX_MONTH}.xlsx"
-)
+    if not os.path.exists(folder_name):
+        os.makedirs(folder_name)
 
-# Write Excel report
-with pd.ExcelWriter(OUTPUT_FILE, engine="openpyxl") as writer:
-    merged_df.to_excel(writer, sheet_name="Reconciliation", index=False)
-    summary.to_excel(writer, sheet_name="Summary", index=False)
+    output_path = os.path.join(
+        folder_name,
+        f"GST_Reconciliation_Report_{tax_month}.xlsx"
+    )
 
-print(f"Reconciliation completed. File saved at: {OUTPUT_FILE}")
+    result.to_excel(output_path, index=False)
+
+    return output_path
+
+
+# ==============================
+# MAIN FUNCTION
+# ==============================
+def main():
+
+    if len(sys.argv) != 4:
+        print("Usage: python gst_reconciliation.py purchase.xlsx gstr.xlsx month")
+        sys.exit(1)
+
+    purchase_file = sys.argv[1]
+    gstr_file = sys.argv[2]
+    tax_month = sys.argv[3]
+
+    print("Loading data...")
+    books, gstr2a = load_files(purchase_file, gstr_file)
+
+    print("Reconciling...")
+    result = reconcile(books, gstr2a)
+
+    print("Saving report...")
+    output_path = save_report(result, tax_month)
+
+    print(f"Report saved at: {output_path}")
+
+
+if __name__ == "__main__":
+    main()
