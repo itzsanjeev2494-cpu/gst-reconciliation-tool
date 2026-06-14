@@ -5,17 +5,18 @@ import sys
 # ==============================
 # SETTINGS
 # ==============================
-TOLERANCE = 1   # ₹1 difference allowed
+TOLERANCE = 1   # Allow ₹1 difference
 
 
 # ==============================
 # LOAD FILES
 # ==============================
 def load_files(purchase_file, gstr_file):
+
     books = pd.read_excel(purchase_file)
     gstr2a = pd.read_excel(gstr_file)
 
-    # Standardize column names
+    # Standardize columns
     books.columns = books.columns.str.strip()
     gstr2a.columns = gstr2a.columns.str.strip()
 
@@ -74,7 +75,7 @@ def reconcile(books, gstr2a):
 
 
 # ==============================
-# SAVE REPORT
+# SAVE REPORT (MULTI-SHEET)
 # ==============================
 def save_report(result, tax_month):
 
@@ -88,7 +89,28 @@ def save_report(result, tax_month):
         f"GST_Reconciliation_Report_{tax_month}.xlsx"
     )
 
-    result.to_excel(output_path, index=False)
+    # Sheet 1: Summary
+    summary = result["Status"].value_counts().reset_index()
+    summary.columns = ["Status", "Count"]
+
+    # Sheet 2: Full Reconciliation
+    full_reconciliation = result
+
+    # Sheet 3: Mismatches
+    mismatches = result[result["Status"] == "Mismatch"]
+
+    # Sheet 4: ITC at Risk
+    itc_risk = result[
+        (result["Status"] == "Only in GSTR") |
+        (result["Status"] == "Only in Books")
+    ]
+
+    # Save multiple sheets
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        summary.to_excel(writer, sheet_name="Summary", index=False)
+        full_reconciliation.to_excel(writer, sheet_name="Full Reconciliation", index=False)
+        mismatches.to_excel(writer, sheet_name="Mismatches", index=False)
+        itc_risk.to_excel(writer, sheet_name="ITC at Risk", index=False)
 
     return output_path
 
