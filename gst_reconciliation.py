@@ -78,75 +78,74 @@ def reconcile(books, gstr2a):
 # SAVE REPORT (MULTI-SHEET)
 # ==============================
 def save_report(result, tax_month):
+    import os
+    import shutil
+    from openpyxl import load_workbook
 
-    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
-    from openpyxl.utils import get_column_letter
+    template_file = "GST_Reconciliation_Report_April (3)(3).xlsx"
 
-    folder_name = f"{tax_month}_Recon"
+    output_folder = f"{tax_month}_Recon"
+    os.makedirs(output_folder, exist_ok=True)
 
-    if not os.path.exists(folder_name):
-        os.makedirs(folder_name)
-
-    output_path = os.path.join(
-        folder_name,
+    output_file = os.path.join(
+        output_folder,
         f"GST_Reconciliation_Report_{tax_month}.xlsx"
     )
 
-    summary = result["Status"].value_counts().reset_index()
-    summary.columns = ["Status", "Count"]
+    # Copy template
+    shutil.copy(template_file, output_file)
 
-    mismatches = result[result["Status"] == "Mismatch"]
+    wb = load_workbook(output_file)
 
-    itc_risk = result[
-        (result["Status"] == "Only in GSTR") |
-        (result["Status"] == "Only in Books")
-    ]
+    # =========================
+    # SUMMARY SHEET
+    # =========================
+    ws = wb["Summary"]
 
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+    ws["A1"] = f"GST Reconciliation Report — {tax_month}"
 
-        summary.to_excel(writer, sheet_name="Summary", index=False)
-        result.to_excel(writer, sheet_name="Full Reconciliation", index=False)
-        mismatches.to_excel(writer, sheet_name="Mismatches", index=False)
-        itc_risk.to_excel(writer, sheet_name="ITC at Risk", index=False)
+    summary_data = result["summary"]
 
-        wb = writer.book
+    start_row = 5
+    for i, row in summary_data.iterrows():
+        ws.cell(row=start_row+i, column=1, value=row["Metric"])
+        ws.cell(row=start_row+i, column=2, value=row["Count"])
+        ws.cell(row=start_row+i, column=3, value=row["Amount (₹)"])
 
-        header_fill = PatternFill("solid", fgColor="1F4E78")
-        header_font = Font(color="FFFFFF", bold=True)
-        thin_border = Border(
-            left=Side(style="thin"),
-            right=Side(style="thin"),
-            top=Side(style="thin"),
-            bottom=Side(style="thin")
-        )
+    # =========================
+    # FULL RECONCILIATION
+    # =========================
+    ws = wb["Full Reconciliation"]
 
-        for ws in wb.worksheets:
+    ws["A1"] = "All Invoices"
 
-            for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal="center")
+    for r_idx, row in enumerate(result["full"].values, start=3):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
 
-            for row in ws.iter_rows():
-                for cell in row:
-                    cell.border = thin_border
+    # =========================
+    # MISMATCHES
+    # =========================
+    ws = wb["Mismatches"]
 
-            for col in ws.columns:
-                max_length = 0
-                col_letter = get_column_letter(col[0].column)
+    for r_idx, row in enumerate(result["mismatch"].values, start=3):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
 
-                for cell in col:
-                    try:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                    except:
-                        pass
+    # =========================
+    # ITC AT RISK
+    # =========================
+    ws = wb["ITC at Risk"]
 
-                ws.column_dimensions[col_letter].width = max_length + 3
+    ws["A1"] = f"ITC at Risk — {tax_month}"
 
-            ws.freeze_panes = "A2"
+    for r_idx, row in enumerate(result["itc_risk"].values, start=4):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
 
-    return output_path
+    wb.save(output_file)
+
+    print(f"Saved: {output_file}")
 
 
 # ==============================
