@@ -82,7 +82,7 @@ def save_report(result, tax_month):
     import shutil
     from openpyxl import load_workbook
 
-    template_file = "GST_Reconciliation_Report_April (3)(3).xlsx"
+    template_file = "GST_Reconciliation_Report_April (3).xlsx"
 
     output_folder = f"{tax_month}_Recon"
     os.makedirs(output_folder, exist_ok=True)
