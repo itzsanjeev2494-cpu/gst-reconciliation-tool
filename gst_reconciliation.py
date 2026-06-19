@@ -6,40 +6,60 @@ from datetime import date
 from openpyxl import load_workbook
 
 
-# ---------------------------------
-# Reconciliation Logic
-# ---------------------------------
+def find_column(df, possible_names):
+    for col in df.columns:
+        for name in possible_names:
+            if str(col).strip().lower() == name.lower():
+                return col
+    return None
+
+
 def reconcile_data(purchase_file, gstr2a_file):
     purchase_df = pd.read_excel(purchase_file)
     gstr2a_df = pd.read_excel(gstr2a_file)
 
-    # Merge on Invoice No
-    merged = pd.merge(
+    purchase_tax_col = find_column(
         purchase_df,
-        gstr2a_df,
-        on="Invoice No",
-        how="left",
-        suffixes=(" (Books)", " (2A)")
+        ["Taxable Amt", "Taxable Amount", "Taxable Value"]
     )
 
-    # Fix GSTR2A column names if suffix not created
-    if "Taxable Amt" in merged.columns:
-        merged.rename(
-            columns={"Taxable Amt": "Taxable Amt (2A)"},
-            inplace=True
-        )
+    purchase_gst_col = find_column(
+        purchase_df,
+        ["GST", "GST Amount", "GST Amt"]
+    )
 
-    if "GST" in merged.columns:
-        merged.rename(
-            columns={"GST": "GST (2A)"},
-            inplace=True
-        )
+    gstr2a_tax_col = find_column(
+        gstr2a_df,
+        ["Taxable Amt", "Taxable Amount", "Taxable Value"]
+    )
 
-    # Fill missing values
+    gstr2a_gst_col = find_column(
+        gstr2a_df,
+        ["GST", "GST Amount", "GST Amt"]
+    )
+
+    purchase_df.rename(columns={
+        purchase_tax_col: "Taxable Amt (Books)",
+        purchase_gst_col: "GST (Books)"
+    }, inplace=True)
+
+    gstr2a_df.rename(columns={
+        gstr2a_tax_col: "Taxable Amt (2A)",
+        gstr2a_gst_col: "GST (2A)"
+    }, inplace=True)
+
+    merged = pd.merge(
+        purchase_df,
+        gstr2a_df[
+            ["Invoice No", "Taxable Amt (2A)", "GST (2A)"]
+        ],
+        on="Invoice No",
+        how="left"
+    )
+
     merged["Taxable Amt (2A)"] = merged["Taxable Amt (2A)"].fillna(0)
     merged["GST (2A)"] = merged["GST (2A)"].fillna(0)
 
-    # Difference calculations
     merged["Tax Diff (₹)"] = (
         merged["Taxable Amt (Books)"] - merged["Taxable Amt (2A)"]
     )
@@ -48,53 +68,30 @@ def reconcile_data(purchase_file, gstr2a_file):
         merged["GST (Books)"] - merged["GST (2A)"]
     )
 
-    # Status
     merged["Status"] = merged.apply(
-        lambda x: "Matched"
+        lambda x:
+        "Matched"
         if abs(x["Tax Diff (₹)"]) <= 1 and abs(x["GST Diff (₹)"]) <= 1
         else "Mismatch",
         axis=1
     )
 
-    # Mismatches
     mismatches = merged[merged["Status"] == "Mismatch"].copy()
 
-    # ITC at Risk
     itc_risk = merged[merged["Taxable Amt (2A)"] == 0].copy()
     itc_risk["Taxable Amt (₹)"] = itc_risk["Taxable Amt (Books)"]
     itc_risk["ITC at Risk (₹)"] = itc_risk["GST (Books)"]
     itc_risk["Recommended Action"] = "Only in Books"
 
-    # Summary
     summary = {
-        "Total invoices (Books)": (
-            len(merged),
-            merged["Taxable Amt (Books)"].sum()
-        ),
-        "Matched": (
-            len(merged[merged["Status"] == "Matched"]),
-            merged[merged["Status"] == "Matched"]["Taxable Amt (Books)"].sum()
-        ),
-        "Mismatches": (
-            len(mismatches),
-            mismatches["Taxable Amt (Books)"].sum()
-        ),
-        "Missing in 2A": (
-            len(itc_risk),
-            itc_risk["Taxable Amt (Books)"].sum()
-        ),
-        "Extra in 2A": (
-            0,
-            0
-        ),
-        "ITC safe to claim": (
-            "-",
-            merged[merged["Status"] == "Matched"]["GST (Books)"].sum()
-        ),
-        "ITC at risk": (
-            "-",
-            itc_risk["GST (Books)"].sum()
-        )
+        "Total invoices (Books)": (len(merged), merged["Taxable Amt (Books)"].sum()),
+        "Matched": (len(merged[merged["Status"] == "Matched"]),
+                    merged[merged["Status"] == "Matched"]["Taxable Amt (Books)"].sum()),
+        "Mismatches": (len(mismatches), mismatches["Taxable Amt (Books)"].sum()),
+        "Missing in 2A": (len(itc_risk), itc_risk["Taxable Amt (Books)"].sum()),
+        "Extra in 2A": (0, 0),
+        "ITC safe to claim": ("-", merged[merged["Status"] == "Matched"]["GST (Books)"].sum()),
+        "ITC at risk": ("-", itc_risk["GST (Books)"].sum())
     }
 
     return {
@@ -105,87 +102,45 @@ def reconcile_data(purchase_file, gstr2a_file):
     }
 
 
-# ---------------------------------
-# Save Report
-# ---------------------------------
 def save_report(result, tax_month):
     template_file = "GST_Reconciliation_Report_April (3).xlsx"
 
-    output_folder = "reports"
-    os.makedirs(output_folder, exist_ok=True)
+    os.makedirs("reports", exist_ok=True)
 
-    output_file = os.path.join(
-        output_folder,
-        f"GST_Reconciliation_Report_{tax_month}.xlsx"
-    )
+    output_file = f"reports/GST_Reconciliation_Report_{tax_month}.xlsx"
 
     shutil.copy(template_file, output_file)
 
     wb = load_workbook(output_file)
 
-    # ---------------------------------
-    # Summary Sheet
-    # ---------------------------------
     ws = wb["Summary"]
 
-    ws["A2"] = (
-        f"Generated on {date.today().strftime('%d %b %Y')} | Tolerance: ₹1.0"
-    )
+    ws["A2"] = f"Generated on {date.today().strftime('%d %b %Y')} | Tolerance: ₹1.0"
 
-    summary_rows = list(result["summary"].items())
+    row_num = 5
+    for metric, values in result["summary"].items():
+        ws.cell(row=row_num, column=1, value=metric)
+        ws.cell(row=row_num, column=2, value=values[0])
+        ws.cell(row=row_num, column=3, value=values[1])
+        row_num += 1
 
-    start_row = 5
-    for i, (metric, values) in enumerate(summary_rows):
-        ws.cell(start_row + i, 1, metric)
-        ws.cell(start_row + i, 2, values[0])
-        ws.cell(start_row + i, 3, values[1])
+    sheet_mapping = {
+        "Full Reconciliation": result["full_reconciliation"],
+        "Mismatches": result["mismatches"]
+    }
 
-    # ---------------------------------
-    # Full Reconciliation Sheet
-    # ---------------------------------
-    ws = wb["Full Reconciliation"]
+    for sheet_name, df in sheet_mapping.items():
+        ws = wb[sheet_name]
+        start_row = 3
 
-    start_row = 3
-    for _, row in result["full_reconciliation"].iterrows():
-        ws.cell(start_row, 1, row["Invoice No"])
-        ws.cell(start_row, 2, row["Vendor Name"])
-        ws.cell(start_row, 3, row["GSTIN"])
-        ws.cell(start_row, 4, row["Invoice Date"])
-        ws.cell(start_row, 5, row["Taxable Amt (Books)"])
-        ws.cell(start_row, 6, row["Taxable Amt (2A)"])
-        ws.cell(start_row, 7, row["Tax Diff (₹)"])
-        ws.cell(start_row, 8, row["GST (Books)"])
-        ws.cell(start_row, 9, row["GST (2A)"])
-        ws.cell(start_row, 10, row["GST Diff (₹)"])
-        ws.cell(start_row, 11, row["Status"])
-        start_row += 1
+        for _, row in df.iterrows():
+            for col_idx, value in enumerate(row.tolist(), start=1):
+                ws.cell(row=start_row, column=col_idx, value=value)
+            start_row += 1
 
-    # ---------------------------------
-    # Mismatches Sheet
-    # ---------------------------------
-    ws = wb["Mismatches"]
-
-    start_row = 3
-    for _, row in result["mismatches"].iterrows():
-        ws.cell(start_row, 1, row["Invoice No"])
-        ws.cell(start_row, 2, row["Vendor Name"])
-        ws.cell(start_row, 3, row["GSTIN"])
-        ws.cell(start_row, 4, row["Invoice Date"])
-        ws.cell(start_row, 5, row["Taxable Amt (Books)"])
-        ws.cell(start_row, 6, row["Taxable Amt (2A)"])
-        ws.cell(start_row, 7, row["Tax Diff (₹)"])
-        ws.cell(start_row, 8, row["GST (Books)"])
-        ws.cell(start_row, 9, row["GST (2A)"])
-        ws.cell(start_row, 10, row["GST Diff (₹)"])
-        ws.cell(start_row, 11, row["Status"])
-        start_row += 1
-
-    # ---------------------------------
-    # ITC at Risk Sheet
-    # ---------------------------------
     ws = wb["ITC at Risk"]
-
     start_row = 4
+
     for _, row in result["itc_risk"].iterrows():
         ws.cell(start_row, 1, row["Invoice No"])
         ws.cell(start_row, 2, row["Vendor Name"])
@@ -201,14 +156,9 @@ def save_report(result, tax_month):
     return output_file
 
 
-# ---------------------------------
-# Main
-# ---------------------------------
 def main():
     if len(sys.argv) != 4:
-        print(
-            "Usage: python gst_reconciliation.py purchase.xlsx gstr2a.xlsx month"
-        )
+        print("Usage: python gst_reconciliation.py purchase.xlsx gstr2a.xlsx month")
         return
 
     purchase_file = sys.argv[1]
@@ -224,12 +174,13 @@ def main():
     )
 
     print("Saving report...")
+
     output_path = save_report(
         result,
         tax_month
     )
 
-    print(f"Report saved successfully: {output_path}")
+    print(f"Saved: {output_path}")
 
 
 if __name__ == "__main__":
