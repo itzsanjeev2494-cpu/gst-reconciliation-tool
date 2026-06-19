@@ -133,13 +133,22 @@ def save_report(result, tax_month):
 
     ws["A1"] = f"GST Reconciliation Report — {tax_month}"
 
-    summary_data = result
+    summary_data = result["summary"]
 
-    start_row = 5
-    for i, row in summary_data.iterrows():
-        ws.cell(row=start_row+i, column=1, value=row["Metric"])
-        ws.cell(row=start_row+i, column=2, value=row["Count"])
-        ws.cell(row=start_row+i, column=3, value=row["Amount (₹)"])
+summary_rows = [
+    ["Total invoices (Books)", summary_data["total_books"], summary_data["total_books_amount"]],
+    ["✓ Matched", summary_data["matched_count"], summary_data["matched_amount"]],
+    ["✗ Mismatches", summary_data["mismatch_count"], summary_data["mismatch_amount"]],
+    ["⚠ Missing in 2A", summary_data["missing_count"], summary_data["missing_amount"]],
+    ["ℹ Extra in 2A", summary_data["extra_count"], summary_data["extra_amount"]],
+    ["ITC safe to claim", "-", summary_data["itc_safe"]],
+    ["ITC at risk", "-", summary_data["itc_risk"]]
+]
+
+for i, row in enumerate(summary_rows, start=5):
+    ws_summary[f"A{i}"] = row[0]
+    ws_summary[f"B{i}"] = row[1]
+    ws_summary[f"C{i}"] = row[2]
 
     # =========================
     # FULL RECONCILIATION
