@@ -36,13 +36,11 @@ def reconcile(books, gstr2a):
         suffixes=("_Books", "_GSTR")
     )
 
-    # Fill missing values
     merged["Taxable Amount_Books"] = merged["Taxable Amount_Books"].fillna(0)
     merged["Taxable Amount_GSTR"] = merged["Taxable Amount_GSTR"].fillna(0)
     merged["GST Amount_Books"] = merged["GST Amount_Books"].fillna(0)
     merged["GST Amount_GSTR"] = merged["GST Amount_GSTR"].fillna(0)
 
-    # Calculate differences
     merged["Taxable Difference"] = (
         merged["Taxable Amount_Books"] - merged["Taxable Amount_GSTR"]
     )
@@ -51,7 +49,6 @@ def reconcile(books, gstr2a):
         merged["GST Amount_Books"] - merged["GST Amount_GSTR"]
     )
 
-    # Status classification
     def classify(row):
 
         tax_diff = abs(row["Taxable Difference"])
@@ -71,7 +68,39 @@ def reconcile(books, gstr2a):
 
     merged["Status"] = merged.apply(classify, axis=1)
 
-    return merged
+    summary = pd.DataFrame({
+        "Metric": [
+            "Total Invoices",
+            "Matched",
+            "Mismatches",
+            "Only in Books",
+            "Only in GSTR"
+        ],
+        "Count": [
+            len(merged),
+            len(merged[merged["Status"] == "Matched"]),
+            len(merged[merged["Status"] == "Mismatch"]),
+            len(merged[merged["Status"] == "Only in Books"]),
+            len(merged[merged["Status"] == "Only in GSTR"])
+        ],
+        "Amount (₹)": [
+            merged["Taxable Amount_Books"].sum(),
+            merged.loc[merged["Status"] == "Matched", "Taxable Amount_Books"].sum(),
+            merged.loc[merged["Status"] == "Mismatch", "Taxable Amount_Books"].sum(),
+            merged.loc[merged["Status"] == "Only in Books", "Taxable Amount_Books"].sum(),
+            merged.loc[merged["Status"] == "Only in GSTR", "Taxable Amount_GSTR"].sum()
+        ]
+    })
+
+    mismatch = merged[merged["Status"] == "Mismatch"]
+    itc_risk = merged[merged["Status"] == "Only in Books"]
+
+    return {
+        "summary": summary,
+        "full": merged,
+        "mismatch": mismatch,
+        "itc_risk": itc_risk
+    }
 
 
 # ==============================
@@ -104,7 +133,7 @@ def save_report(result, tax_month):
 
     ws["A1"] = f"GST Reconciliation Report — {tax_month}"
 
-    summary_data = result["summary"]
+    summary_data = result
 
     start_row = 5
     for i, row in summary_data.iterrows():
