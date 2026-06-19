@@ -6,14 +6,14 @@ from datetime import date
 from openpyxl import load_workbook
 
 
-# -----------------------------
+# ---------------------------------
 # Reconciliation Logic
-# -----------------------------
+# ---------------------------------
 def reconcile_data(purchase_file, gstr2a_file):
     purchase_df = pd.read_excel(purchase_file)
     gstr2a_df = pd.read_excel(gstr2a_file)
 
-    # Merge based on Invoice No
+    # Merge on Invoice No
     merged = pd.merge(
         purchase_df,
         gstr2a_df,
@@ -22,11 +22,24 @@ def reconcile_data(purchase_file, gstr2a_file):
         suffixes=(" (Books)", " (2A)")
     )
 
-    # Fill blank values
+    # Fix GSTR2A column names if suffix not created
+    if "Taxable Amt" in merged.columns:
+        merged.rename(
+            columns={"Taxable Amt": "Taxable Amt (2A)"},
+            inplace=True
+        )
+
+    if "GST" in merged.columns:
+        merged.rename(
+            columns={"GST": "GST (2A)"},
+            inplace=True
+        )
+
+    # Fill missing values
     merged["Taxable Amt (2A)"] = merged["Taxable Amt (2A)"].fillna(0)
     merged["GST (2A)"] = merged["GST (2A)"].fillna(0)
 
-    # Calculate differences
+    # Difference calculations
     merged["Tax Diff (₹)"] = (
         merged["Taxable Amt (Books)"] - merged["Taxable Amt (2A)"]
     )
@@ -43,6 +56,7 @@ def reconcile_data(purchase_file, gstr2a_file):
         axis=1
     )
 
+    # Mismatches
     mismatches = merged[merged["Status"] == "Mismatch"].copy()
 
     # ITC at Risk
@@ -69,7 +83,10 @@ def reconcile_data(purchase_file, gstr2a_file):
             len(itc_risk),
             itc_risk["Taxable Amt (Books)"].sum()
         ),
-        "Extra in 2A": (0, 0),
+        "Extra in 2A": (
+            0,
+            0
+        ),
         "ITC safe to claim": (
             "-",
             merged[merged["Status"] == "Matched"]["GST (Books)"].sum()
@@ -77,7 +94,7 @@ def reconcile_data(purchase_file, gstr2a_file):
         "ITC at risk": (
             "-",
             itc_risk["GST (Books)"].sum()
-        ),
+        )
     }
 
     return {
@@ -88,9 +105,9 @@ def reconcile_data(purchase_file, gstr2a_file):
     }
 
 
-# -----------------------------
+# ---------------------------------
 # Save Report
-# -----------------------------
+# ---------------------------------
 def save_report(result, tax_month):
     template_file = "GST_Reconciliation_Report_April (3).xlsx"
 
@@ -106,13 +123,14 @@ def save_report(result, tax_month):
 
     wb = load_workbook(output_file)
 
-    # -----------------------------
+    # ---------------------------------
     # Summary Sheet
-    # -----------------------------
+    # ---------------------------------
     ws = wb["Summary"]
 
-    ws.merge_cells("A2:C2")
-    ws["A2"] = f"Generated on {date.today().strftime('%d %b %Y')} | Tolerance: ₹1.0"
+    ws["A2"] = (
+        f"Generated on {date.today().strftime('%d %b %Y')} | Tolerance: ₹1.0"
+    )
 
     summary_rows = list(result["summary"].items())
 
@@ -122,9 +140,9 @@ def save_report(result, tax_month):
         ws.cell(start_row + i, 2, values[0])
         ws.cell(start_row + i, 3, values[1])
 
-    # -----------------------------
-    # Full Reconciliation
-    # -----------------------------
+    # ---------------------------------
+    # Full Reconciliation Sheet
+    # ---------------------------------
     ws = wb["Full Reconciliation"]
 
     start_row = 3
@@ -142,9 +160,9 @@ def save_report(result, tax_month):
         ws.cell(start_row, 11, row["Status"])
         start_row += 1
 
-    # -----------------------------
-    # Mismatches
-    # -----------------------------
+    # ---------------------------------
+    # Mismatches Sheet
+    # ---------------------------------
     ws = wb["Mismatches"]
 
     start_row = 3
@@ -162,9 +180,9 @@ def save_report(result, tax_month):
         ws.cell(start_row, 11, row["Status"])
         start_row += 1
 
-    # -----------------------------
-    # ITC at Risk
-    # -----------------------------
+    # ---------------------------------
+    # ITC at Risk Sheet
+    # ---------------------------------
     ws = wb["ITC at Risk"]
 
     start_row = 4
@@ -183,12 +201,14 @@ def save_report(result, tax_month):
     return output_file
 
 
-# -----------------------------
-# Main Function
-# -----------------------------
+# ---------------------------------
+# Main
+# ---------------------------------
 def main():
     if len(sys.argv) != 4:
-        print("Usage: python gst_reconciliation.py purchase.xlsx gstr.xlsx month")
+        print(
+            "Usage: python gst_reconciliation.py purchase.xlsx gstr2a.xlsx month"
+        )
         return
 
     purchase_file = sys.argv[1]
@@ -198,12 +218,18 @@ def main():
     print("Loading data...")
     print("Reconciling...")
 
-    result = reconcile_data(purchase_file, gstr2a_file)
+    result = reconcile_data(
+        purchase_file,
+        gstr2a_file
+    )
 
     print("Saving report...")
-    output_path = save_report(result, tax_month)
+    output_path = save_report(
+        result,
+        tax_month
+    )
 
-    print(f"Report saved at: {output_path}")
+    print(f"Report saved successfully: {output_path}")
 
 
 if __name__ == "__main__":
