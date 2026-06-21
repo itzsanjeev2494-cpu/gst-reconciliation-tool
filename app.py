@@ -1,11 +1,16 @@
-from flask import Flask, render_template, request, send_file, redirect, url_for
+from flask import Flask, render_template, request, send_file
 import os
 import subprocess
+from datetime import datetime
 
 app = Flask(__name__)
 
 UPLOAD_FOLDER = "uploads"
+REPORT_FOLDER = "reports"
+
+# Create folders if not exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(REPORT_FOLDER, exist_ok=True)
 
 
 # Home Page
@@ -21,12 +26,31 @@ def run_reconciliation():
     gstr_file = request.files["gstr_file"]
     tax_month = request.form["tax_month"]
 
-    # Save uploaded files
-    purchase_path = os.path.join(UPLOAD_FOLDER, purchase_file.filename)
-    gstr_path = os.path.join(UPLOAD_FOLDER, gstr_file.filename)
+    # Unique timestamp for every upload
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    # Save uploaded files with unique names
+    purchase_path = os.path.join(
+        UPLOAD_FOLDER,
+        f"{timestamp}_{purchase_file.filename}"
+    )
+
+    gstr_path = os.path.join(
+        UPLOAD_FOLDER,
+        f"{timestamp}_{gstr_file.filename}"
+    )
 
     purchase_file.save(purchase_path)
     gstr_file.save(gstr_path)
+
+    # Delete old report if exists
+    old_report = os.path.join(
+        REPORT_FOLDER,
+        f"GST_Reconciliation_Report_{tax_month}.xlsx"
+    )
+
+    if os.path.exists(old_report):
+        os.remove(old_report)
 
     # Run reconciliation script
     command = [
@@ -36,27 +60,20 @@ def run_reconciliation():
         gstr_path,
         tax_month
     ]
-old_report = os.path.join(
-    "reports",
-    f"GST_Reconciliation_Report_{tax_month}.xlsx"
-)
 
-if os.path.exists(old_report):
-    os.remove(old_report)
     subprocess.run(command, check=True)
 
-    # Correct output file path
-  output_file = os.path.join(
-    "reports",
-    f"GST_Reconciliation_Report_{tax_month}.xlsx"
-
+    # Correct latest output file path
+    output_file = os.path.join(
+        REPORT_FOLDER,
+        f"GST_Reconciliation_Report_{tax_month}.xlsx"
     )
 
     # Check if file exists
     if not os.path.exists(output_file):
         return f"Error: File not found -> {output_file}"
 
-    # Download file
+    # Send file to user
     return send_file(
         output_file,
         as_attachment=True
