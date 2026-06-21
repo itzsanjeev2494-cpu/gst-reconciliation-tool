@@ -36,17 +36,20 @@ def run_reconciliation():
         gstr_path,
         tax_month
     ]
+old_report = os.path.join(
+    "reports",
+    f"GST_Reconciliation_Report_{tax_month}.xlsx"
+)
 
+if os.path.exists(old_report):
+    os.remove(old_report)
     subprocess.run(command, check=True)
 
     # Correct output file path
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+  output_file = os.path.join(
+    "reports",
+    f"GST_Reconciliation_Report_{tax_month}.xlsx"
 
-    output_folder = os.path.join(BASE_DIR, f"{tax_month}_Recon")
-
-    output_file = os.path.join(
-        output_folder,
-        f"GST_Reconciliation_Report_{tax_month}.xlsx"
     )
 
     # Check if file exists
